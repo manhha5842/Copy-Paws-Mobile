@@ -1,0 +1,106 @@
+name: copypaws
+description: "CopyPaws Mobile - Clipboard sync companion app for CopyPaws Desktop"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
+  
+  # State Management (choose one when implementing)
+  # provider: ^6.0.5
+  # flutter_bloc: ^8.1.3
+  # flutter_riverpod: ^2.4.0
+  
+  # Navigation
+  go_router: ^17.0.1
+  
+  # Network
+  web_socket_channel: ^3.0.3
+  http: ^1.2.0
+  
+  # QR Code
+  mobile_scanner: ^7.1.4
+  qr_flutter: ^4.1.0
+  
+  # Clipboard
+  # Note: Flutter has built-in clipboard support via services.dart
+  # For advanced clipboard features:
+  # super_clipboard: ^0.8.0
+  
+  # Storage
+  shared_preferences: ^2.2.2
+  flutter_secure_storage: ^10.0.0
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  
+  # Encryption
+  pointycastle: ^4.0.0
+  
+  crypto: ^3.0.3
+  
+  # mDNS Discovery
+  bonsoir: ^6.0.0
+  
+  # Background processing
+  # Note: Add platform-specific packages as needed
+  # workmanager: ^0.5.2  # Android background
+  # background_fetch: ^1.2.1  # iOS/Android
+  
+  # Notifications
+  flutter_local_notifications: ^19.5.0
+  
+  # Device Info
+  device_info_plus: ^12.3.0
+  package_info_plus: ^9.0.0
+  battery_plus: ^7.0.0
+  
+  # Permissions
+  permission_handler: ^12.0.1
+  
+  # Utils
+  uuid: ^4.3.3
+  intl: ^0.20.2
+  collection: ^1.18.0
+  home_widget: ^0.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  
+  # Testing
+  mockito: ^5.4.4
+  build_runner: ^2.4.8
+  
+  # Code generation (if using freezed/json_serializable)
+  # freezed: ^2.4.6
+  # json_serializable: ^6.7.1
+  # freezed_annotation: ^2.4.1
+  # json_annotation: ^4.8.1
+
+flutter:
+  uses-material-design: true
+
+  # Assets - uncomment and add when ready
+  # assets:
+  #   - assets/images/
+  #   - assets/icons/
+  
+  # Fonts - uncomment and add when ready
+  # fonts:
+  #   - family: Inter
+  #     fonts:
+  #       - asset: assets/fonts/Inter-Regular.ttf
+  #       - asset: assets/fonts/Inter-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/Inter-Bold.ttf
+  #         weight: 700
