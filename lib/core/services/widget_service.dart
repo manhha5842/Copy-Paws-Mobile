@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../models/clipboard_item.dart';
@@ -15,9 +16,13 @@ class WidgetService {
   static const String _iOSWidgetName = 'CopyPawsWidget';
   static const String _appGroupId = 'group.com.example.copypaws';
 
+  // Method channel for Android deep link communication
+  static const MethodChannel _widgetChannel = MethodChannel('widget_channel');
+
   /// Initialize
   Future<void> initialize() async {
     await HomeWidget.setAppGroupId(_appGroupId);
+    AppLogger.info('WidgetService initialized');
   }
 
   /// Update widget with latest clips
@@ -64,14 +69,41 @@ class WidgetService {
         androidName: _androidWidgetName,
         iOSName: _iOSWidgetName,
       );
-    } catch (e) {
-      AppLogger.error('Failed to update widget', error: e);
+
+      AppLogger.info('Widget updated successfully');
+    } catch (e, stack) {
+      AppLogger.error('Failed to update widget', error: e, stackTrace: stack);
     }
   }
 
-  /// Register for background interaction
+  /// Register for background interaction and method channel callbacks
+  /// This handles widget button clicks forwarded from Android MainActivity
   Future<void> registerBackgroundCallback(void Function(Uri?) callback) async {
-    // TODO: Implement background interactivity
-    // await HomeWidget.registerInteractivityCallback(callback);
+    try {
+      // Setup method channel handler for Android deep links
+      _widgetChannel.setMethodCallHandler((call) async {
+        if (call.method == 'widgetAction') {
+          final String? action = call.arguments['action'];
+          final String? uriString = call.arguments['uri'];
+
+          AppLogger.info('Widget action received via channel: $action');
+
+          if (uriString != null) {
+            final uri = Uri.tryParse(uriString);
+            if (uri != null) {
+              callback(uri);
+            }
+          }
+        }
+      });
+
+      AppLogger.info('Widget background callback registered');
+    } catch (e, stack) {
+      AppLogger.error(
+        'Failed to register background callback',
+        error: e,
+        stackTrace: stack,
+      );
+    }
   }
 }

@@ -2,115 +2,97 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="horizontal"
+    android:orientation="vertical"
     android:background="@drawable/widget_background"
     android:padding="12dp">
 
-    <!-- Left: Top 3 Recent Clips -->
-    <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
+    <!-- Header -->
+    <TextView
+        android:text="CopyPaws"
+        android:textSize="11sp"
+        android:textColor="#888888"
+        android:textStyle="bold"
+        android:textAllCaps="true"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Latest Clip Content -->
+    <TextView
+        android:id="@+id/clip_content"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="vertical"
-        android:paddingEnd="12dp">
-        
-        <TextView
-            android:text="Recent Clips"
-            android:textSize="10sp"
-            android:textColor="#888888"
-            android:textStyle="bold"
-            android:textAllCaps="true"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="6dp"/>
+        android:text="No clips yet"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:gravity="top"
+        android:padding="8dp"
+        android:background="#1A1A1A"/>
 
-        <!-- Clip 0 -->
-        <TextView
-            android:id="@+id/clip_0_content"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:text="--"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:gravity="center_vertical" />
-            
-        <View android:layout_height="1dp" android:layout_width="match_parent" android:background="#2A2A2A" android:layout_marginTop="2dp" android:layout_marginBottom="2dp" />
+    <!-- Clip Metadata -->
+    <TextView
+        android:id="@+id/clip_meta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#666666"
+        android:textSize="10sp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="8dp"/>
 
-        <!-- Clip 1 -->
-        <TextView
-            android:id="@+id/clip_1_content"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:text=""
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="#BBBBBB"
-            android:textSize="13sp"
-            android:gravity="center_vertical" />
-
-        <View android:layout_height="1dp" android:layout_width="match_parent" android:background="#2A2A2A" android:layout_marginTop="2dp" android:layout_marginBottom="2dp" />
-
-        <!-- Clip 2 -->
-        <TextView
-            android:id="@+id/clip_2_content"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:text=""
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="#888888"
-            android:textSize="13sp"
-            android:gravity="center_vertical" />
-            
-    </LinearLayout>
-
-    <View
-        android:layout_width="1dp"
-        android:layout_height="match_parent"
-        android:background="#333333"
-        android:layout_marginEnd="8dp" />
-
-    <!-- Right: Actions -->
+    <!-- Action Buttons Row -->
     <LinearLayout
-        android:layout_width="80dp"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
         android:gravity="center">
 
+        <!-- Copy Button -->
         <TextView
-            android:id="@+id/btn_push"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:id="@+id/btn_copy"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
             android:layout_weight="1"
-            android:text="Push"
+            android:text="📋 Copy"
             android:gravity="center"
             android:background="@drawable/widget_button_bg"
-            android:textColor="#EEEEEE"
+            android:textColor="#4CAF50"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:layout_marginBottom="4dp"
-            android:clickable="true"
-            android:focusable="true"/>
+            android:layout_marginEnd="4dp"/>
 
+        <!-- Pull Button -->
         <TextView
             android:id="@+id/btn_pull"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
             android:layout_weight="1"
-            android:text="Pull"
+            android:text="⬇️ Pull"
             android:gravity="center"
             android:background="@drawable/widget_button_bg"
-            android:textColor="#EEEEEE"
+            android:textColor="#2196F3"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:layout_marginTop="4dp"
-            android:clickable="true"
-            android:focusable="true"/>
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"/>
+
+        <!-- Push Button -->
+        <TextView
+            android:id="@+id/btn_push"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="⬆️ Push"
+            android:gravity="center"
+            android:background="@drawable/widget_button_bg"
+            android:textColor="#FF9800"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:layout_marginStart="4dp"/>
+
     </LinearLayout>
 
 </LinearLayout>

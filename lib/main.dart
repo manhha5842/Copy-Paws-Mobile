@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/config/app_config.dart';
+import 'core/services/background_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/scan/presentation/screens/scan_qr_screen.dart';
@@ -24,6 +25,9 @@ void main() async {
 
   // Initialize app configuration
   await AppConfig.initialize();
+
+  // Initialize background service
+  await BackgroundService.initialize();
 
   print('✅ App initialization complete');
   print('═══════════════════════════════════════');

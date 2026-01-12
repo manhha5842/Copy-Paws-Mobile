@@ -70,6 +70,7 @@ dependencies:
   intl: ^0.20.2
   collection: ^1.18.0
   home_widget: ^0.8.1
+  flutter_background_service: ^5.1.0
 
 dev_dependencies:
   flutter_test:

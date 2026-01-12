@@ -78,8 +78,15 @@ class DiscoveryService {
       return;
     }
 
+    // Parse TXT records
+    final attributes = service.attributes;
+    final serverId = attributes['server_id'];
+
+    // Use server_id if available, otherwise fallback to constructed ID
+    final hubId = serverId ?? '${name}_${ip}_$port';
+
     final hub = HubInfo(
-      id: '${name}_${ip}_$port',
+      id: hubId,
       name: name,
       endpoint: 'ws://$ip:$port',
       ip: ip,

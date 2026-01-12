@@ -98,8 +98,42 @@ class ConnectionManager {
       return false;
     }
 
-    AppLogger.info('Auto-connecting to ${_currentHub!.name}');
-    return await connect(_currentHub!);
+    AppLogger.info(
+      'Auto-connecting to ${_currentHub!.name} (${_currentHub!.endpoint})',
+    );
+
+    // 1. Try direct connection first (fastest)
+    if (await connect(_currentHub!)) {
+      return true;
+    }
+
+    AppLogger.info(
+      'Direct connection failed. Starting discovery for hub ID: ${_currentHub!.id}',
+    );
+
+    // 2. If direct fails, try discovery to find new IP
+    try {
+      await _discoveryService.startDiscovery();
+
+      // Wait for matching hub (5 seconds timeout)
+      final matchingHub = await _discoveryService.hubsStream
+          .expand((hubs) => hubs)
+          .firstWhere((hub) => hub.id == _currentHub!.id)
+          .timeout(const Duration(seconds: 5));
+
+      AppLogger.info('Found hub via discovery: ${matchingHub.endpoint}');
+
+      // Stop discovery before connecting
+      await _discoveryService.stopDiscovery();
+
+      // Connect to the discovered hub
+      // Note: We maintain the original secret/pairing status
+      return await connect(matchingHub);
+    } catch (e) {
+      AppLogger.warning('Auto-connect via discovery failed: $e');
+      await _discoveryService.stopDiscovery(); // Ensure stopped
+      return false;
+    }
   }
 
   /// Connect to a hub

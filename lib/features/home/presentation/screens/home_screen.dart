@@ -8,6 +8,7 @@ import '../../../../core/models/hub_info.dart';
 import '../../../../core/services/connection_manager.dart';
 import '../../../../core/services/sync_service.dart';
 import '../../../../core/services/storage_service.dart';
+import '../../../../core/services/widget_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/logger.dart';
 import '../../widgets/connection_status_card.dart';
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _connectionManager = ConnectionManager.instance;
   final _syncService = SyncService.instance;
   final _storageService = StorageService.instance;
+  final _widgetService = WidgetService.instance;
 
   // State
   app.ConnectionState _connectionState = app.ConnectionState.disconnected;
@@ -62,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       // Reconnect when app resumes
       if (!_connectionManager.isConnected && _connectedHub != null) {
-        _connectionManager.reconnect();
+        _connectionManager.autoConnect();
       }
       // Request latest clips
       if (_connectionManager.isConnected) {
@@ -78,6 +80,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _storageService.initialize();
     await _connectionManager.initialize();
     await _syncService.initialize();
+    await _widgetService.initialize();
+
+    // Register widget callback to handle deep link actions from Android
+    await _widgetService.registerBackgroundCallback(_handleWidgetAction);
 
     // Get initial state
     _connectedHub = _connectionManager.currentHub;
@@ -123,13 +129,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  void _handleWidgetAction(Uri uri) {
+  void _handleWidgetAction(Uri? uri) {
+    if (uri == null) return;
+
     AppLogger.info('Widget action received: $uri');
-    if (uri.toString().contains('push')) {
-      _handlePushToHub();
-    } else if (uri.toString().contains('pull')) {
-      _handleRefresh();
-      // Also maybe copy to clipboard if we have a specific clip ID in the future
+
+    final action = uri.host;
+
+    switch (action) {
+      case 'push':
+        AppLogger.info('Widget: Handling push action');
+        _handlePushToHub();
+        break;
+      case 'pull':
+        AppLogger.info('Widget: Handling pull action');
+        _handleRefresh();
+        break;
+      case 'open':
+        AppLogger.info('Widget: Handling open action');
+        // App is already opened by the deep link, just log it
+        break;
+      default:
+        AppLogger.warning('Widget: Unknown action: $action');
     }
   }
 
