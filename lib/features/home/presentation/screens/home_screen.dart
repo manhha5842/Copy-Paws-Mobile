@@ -9,6 +9,7 @@ import '../../../../core/services/connection_manager.dart';
 import '../../../../core/services/sync_service.dart';
 import '../../../../core/services/storage_service.dart';
 import '../../../../core/services/widget_service.dart';
+import '../../../../core/services/auto_connect_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/logger.dart';
 import '../../widgets/connection_status_card.dart';
@@ -31,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _syncService = SyncService.instance;
   final _storageService = StorageService.instance;
   final _widgetService = WidgetService.instance;
+  final _autoConnectService = AutoConnectService.instance;
 
   // State
   app.ConnectionState _connectionState = app.ConnectionState.disconnected;
@@ -62,11 +64,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Reconnect when app resumes
-      if (!_connectionManager.isConnected && _connectedHub != null) {
-        _connectionManager.autoConnect();
-      }
-      // Request latest clips
+      AppLogger.info('App resumed from background');
+      // Use AutoConnectService for better reconnection handling
+      _autoConnectService.onAppResume();
+      // Request latest clips if connected
       if (_connectionManager.isConnected) {
         _syncService.requestLatest();
       }
@@ -81,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _connectionManager.initialize();
     await _syncService.initialize();
     await _widgetService.initialize();
+    await _autoConnectService.initialize();
 
     // Register widget callback to handle deep link actions from Android
     await _widgetService.registerBackgroundCallback(_handleWidgetAction);
@@ -110,8 +112,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     });
 
-    // Auto-connect if hub is saved
-    await _connectionManager.autoConnect();
+    // Auto-connect on app launch using AutoConnectService
+    await _autoConnectService.onAppLaunch();
 
     // Check if launched from widget
     final widgetLaunchUri = await HomeWidget.initiallyLaunchedFromHomeWidget();

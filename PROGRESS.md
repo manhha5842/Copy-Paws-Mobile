@@ -210,6 +210,7 @@ lib/
 | Feature | Status | Ghi chú |
 |---------|--------|---------|
 | iOS Widget | 🔄 Cần setup manual | Xem WIDGET_IOS_SETUP.md |
+| Auto-Connect Service | ✅ Hoàn thành | WiFi trigger, app resume, app launch |
 
 ---
 
@@ -233,7 +234,7 @@ lib/
 | Feature | Priority | Ghi chú |
 |---------|----------|---------|\r\n| iOS Widget Extension | Cao | Cần Xcode manual setup |
 | iOS background fetch | Trung bình | Background clipboard sync |
-| Android foreground service | Trung bình | |
+| Android foreground service | ✅ Hoàn thành | BackgroundService implemented |
 | Unit tests | Cao | |
 | Integration tests | Cao | |
 | E2E tests | Trung bình | |
@@ -289,7 +290,8 @@ flutter build ios --release
 | Encryption Service | 5 | 5 | 100% |
 | Storage Service | 11 | 11 | 100% |
 | Clipboard Service | 3 | 3 | 100% |
-| Notification Service | 4 | 4 | 100% |
+| Notification Service | 5 | 5 | 100% |
+| Auto-Connect Service | 8 | 8 | 100% |
 | Discovery Service | 4 | 4 | 100% |
 | Widget Service | 5 | 5 | 100% |
 | Home Screen | 11 | 11 | 100% |
@@ -323,6 +325,8 @@ flutter build ios --release
 | `device_info_plus` | latest | Device info |
 | `uuid` | latest | UUID generation |
 | `home_widget` | latest | Home widget |
+| `connectivity_plus` | ^6.1.4 | Network monitoring |
+| `flutter_background_service` | ^5.1.0 | Background service |
 
 ---
 

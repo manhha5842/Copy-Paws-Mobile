@@ -92,11 +92,12 @@ class NotificationService {
     return true;
   }
 
-  /// Show new clip notification
+  /// Show new clip notification with action buttons
   Future<void> showNewClipNotification({
     required String title,
     required String body,
     String? clipId,
+    bool showActions = true,
   }) async {
     if (!_initialized) return;
 
@@ -104,7 +105,8 @@ class NotificationService {
         ? clipId.hashCode
         : newClipBaseId + DateTime.now().millisecondsSinceEpoch % 1000;
 
-    const androidDetails = AndroidNotificationDetails(
+    // Android notification with actions
+    final androidDetails = AndroidNotificationDetails(
       clipsChannelId,
       clipsChannelName,
       channelDescription: clipsChannelDesc,
@@ -112,6 +114,26 @@ class NotificationService {
       priority: Priority.high,
       category: AndroidNotificationCategory.message,
       autoCancel: true,
+      styleInformation: BigTextStyleInformation(
+        body,
+        contentTitle: title,
+        summaryText: 'Tap to copy',
+      ),
+      actions: showActions
+          ? <AndroidNotificationAction>[
+              AndroidNotificationAction(
+                'copy_$clipId',
+                'Copy',
+                showsUserInterface: false,
+                cancelNotification: true,
+              ),
+              AndroidNotificationAction(
+                'view_$clipId',
+                'View',
+                showsUserInterface: true,
+              ),
+            ]
+          : null,
     );
 
     const iosDetails = DarwinNotificationDetails(
@@ -120,14 +142,14 @@ class NotificationService {
       presentSound: true,
     );
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
 
     await _plugin.show(id, title, body, details, payload: clipId);
 
-    AppLogger.debug('Showed notification: $title');
+    AppLogger.debug('Showed notification: $title with actions');
   }
 
   /// Show connection status notification (persistent on Android)

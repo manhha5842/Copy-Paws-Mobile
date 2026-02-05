@@ -6,7 +6,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'connection_manager.dart';
 import 'storage_service.dart';
-import 'encryption_service.dart';
 import 'sync_service.dart';
 import '../utils/logger.dart';
 import '../constants/connection_state.dart' as app_state;
