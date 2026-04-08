@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:uuid/uuid.dart';
 
@@ -33,6 +34,7 @@ class SyncService {
   StreamSubscription? _messageSubscription;
   StreamSubscription? _clipboardSubscription;
   bool _isInitialized = false;
+  bool _isAppInForeground = false;
 
   // Stream controllers
   final _incomingClipsController =
@@ -44,6 +46,15 @@ class SyncService {
   Stream<List<ClipboardItem>> get incomingClipsStream =>
       _incomingClipsController.stream;
   Stream<ClipboardItem> get newClipStream => _newClipController.stream;
+
+  /// Track whether the visible app isolate is currently in the foreground.
+  /// Background isolates never set this to true, so auto-copy remains disabled there.
+  void setAppInForeground(bool isForeground) {
+    if (_isAppInForeground == isForeground) return;
+
+    _isAppInForeground = isForeground;
+    AppLogger.info('SyncService foreground state: $isForeground');
+  }
 
   /// Initialize sync service
   Future<void> initialize() async {
@@ -316,6 +327,26 @@ class SyncService {
 
       // Save to database
       _storageService.saveClip(clip);
+
+      final shouldAutoCopy =
+          _storageService.autoCopyIncomingForeground &&
+          (_isAppInForeground || Platform.isAndroid);
+      final alreadyCopied = _storageService.lastAutoCopiedClipId == clip.id;
+
+      if (shouldAutoCopy && !alreadyCopied) {
+        final copied = await _clipService.setContent(clip.content);
+        if (copied) {
+          await _storageService.setLastAutoCopiedClipId(clip.id);
+          AppLogger.info(
+            'Auto-copied incoming clip'
+            ' (foreground=$_isAppInForeground, platform=${Platform.operatingSystem})',
+          );
+        } else {
+          AppLogger.warning('Failed to auto-copy incoming clip');
+        }
+      } else if (shouldAutoCopy && alreadyCopied) {
+        AppLogger.debug('Skipping duplicate auto-copy for clip: ${clip.id}');
+      }
 
       // Show notification
       if (_storageService.notificationsEnabled) {

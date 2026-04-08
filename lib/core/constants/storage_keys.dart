@@ -21,7 +21,10 @@ class StorageKeys {
   static const String notificationsEnabled = 'notifications_enabled';
   static const String autoConnect = 'auto_connect';
   static const String syncEnabled = 'sync_enabled';
+  static const String autoCopyIncomingForeground =
+      'auto_copy_incoming_foreground';
   static const String showPreview = 'show_preview';
+  static const String lastAutoCopiedClipId = 'last_auto_copied_clip_id';
 
   // Cache
   static const String clipHistoryCache = 'clip_history_cache';

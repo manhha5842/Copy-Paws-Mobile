@@ -189,6 +189,25 @@ class StorageService {
     await _prefs?.setBool(StorageKeys.syncEnabled, enabled);
   }
 
+  /// Get auto-copy for incoming clips while app is in foreground
+  bool get autoCopyIncomingForeground =>
+      _prefs?.getBool(StorageKeys.autoCopyIncomingForeground) ?? false;
+
+  /// Set auto-copy for incoming clips while app is in foreground
+  Future<void> setAutoCopyIncomingForeground(bool enabled) async {
+    await _prefs?.setBool(StorageKeys.autoCopyIncomingForeground, enabled);
+  }
+
+  /// Get last auto-copied clip id.
+  /// Used to avoid duplicate copies across UI and background isolates.
+  String? get lastAutoCopiedClipId =>
+      _prefs?.getString(StorageKeys.lastAutoCopiedClipId);
+
+  /// Save last auto-copied clip id
+  Future<void> setLastAutoCopiedClipId(String clipId) async {
+    await _prefs?.setString(StorageKeys.lastAutoCopiedClipId, clipId);
+  }
+
   /// Get show preview
   bool get showPreview => _prefs?.getBool(StorageKeys.showPreview) ?? true;
 

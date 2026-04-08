@@ -49,12 +49,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _syncService.setAppInForeground(true);
     _initialize();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _syncService.setAppInForeground(false);
     _connectionStateSubscription?.cancel();
     _hubSubscription?.cancel();
     _clipsSubscription?.cancel();
@@ -63,6 +65,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncService.setAppInForeground(state == AppLifecycleState.resumed);
+
     if (state == AppLifecycleState.resumed) {
       AppLogger.info('App resumed from background');
       // Use AutoConnectService for better reconnection handling

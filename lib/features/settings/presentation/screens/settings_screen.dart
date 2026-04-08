@@ -21,6 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notificationsEnabled = true;
   bool _autoConnect = true;
   bool _syncEnabled = true;
+  bool _autoCopyIncomingForeground = false;
   bool _showPreview = true;
   String _appVersion = '';
 
@@ -34,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _notificationsEnabled = _storageService.notificationsEnabled;
     _autoConnect = _storageService.autoConnect;
     _syncEnabled = _storageService.syncEnabled;
+    _autoCopyIncomingForeground = _storageService.autoCopyIncomingForeground;
     _showPreview = _storageService.showPreview;
 
     final packageInfo = await PackageInfo.fromPlatform();
@@ -124,6 +126,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (value) async {
                   await _storageService.setShowPreview(value);
                   setState(() => _showPreview = value);
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            _SettingsTile(
+              icon: Icons.content_paste,
+              title: 'Silent Copy Incoming',
+              subtitle: 'Best effort on Android, even while using another app',
+              trailing: Switch(
+                value: _autoCopyIncomingForeground,
+                onChanged: (value) async {
+                  await _storageService.setAutoCopyIncomingForeground(value);
+                  setState(() => _autoCopyIncomingForeground = value);
                 },
               ),
             ),
