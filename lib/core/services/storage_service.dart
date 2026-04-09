@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -49,7 +51,7 @@ class StorageService {
 
     _database = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE clips (
@@ -59,10 +61,25 @@ class StorageService {
             source_device TEXT,
             source_app TEXT,
             is_from_hub INTEGER NOT NULL DEFAULT 1,
-            is_pinned INTEGER NOT NULL DEFAULT 0
+            is_pinned INTEGER NOT NULL DEFAULT 0,
+            content_type TEXT NOT NULL DEFAULT 'text',
+            mime_type TEXT,
+            content_size INTEGER,
+            thumbnail_path TEXT
           )
         ''');
         AppLogger.info('Database created');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            "ALTER TABLE clips ADD COLUMN content_type TEXT NOT NULL DEFAULT 'text'",
+          );
+          await db.execute('ALTER TABLE clips ADD COLUMN mime_type TEXT');
+          await db.execute('ALTER TABLE clips ADD COLUMN content_size INTEGER');
+          await db.execute('ALTER TABLE clips ADD COLUMN thumbnail_path TEXT');
+          AppLogger.info('Database upgraded to version 2');
+        }
       },
     );
   }
@@ -230,7 +247,33 @@ class StorageService {
       'source_app': clip.sourceApp,
       'is_from_hub': clip.isFromHub ? 1 : 0,
       'is_pinned': 0,
+      'content_type': clip.contentType.value,
+      'mime_type': clip.mimeType,
+      'content_size': clip.contentSize,
+      'thumbnail_path': clip.thumbnailPath,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Save clipboard item only if it does not already exist.
+  /// Returns true when the clip was newly inserted.
+  Future<bool> saveClipIfNew(ClipboardItem clip) async {
+    if (_database == null) return false;
+
+    final rowId = await _database!.insert('clips', {
+      'id': clip.id,
+      'content': clip.content,
+      'timestamp': clip.timestamp.millisecondsSinceEpoch,
+      'source_device': clip.sourceDevice,
+      'source_app': clip.sourceApp,
+      'is_from_hub': clip.isFromHub ? 1 : 0,
+      'is_pinned': 0,
+      'content_type': clip.contentType.value,
+      'mime_type': clip.mimeType,
+      'content_size': clip.contentSize,
+      'thumbnail_path': clip.thumbnailPath,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+    return rowId != 0;
   }
 
   /// Get clipboard history
@@ -243,20 +286,28 @@ class StorageService {
       limit: limit,
     );
 
-    return results
-        .map(
-          (row) => ClipboardItem(
-            id: row['id'] as String,
-            content: row['content'] as String,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(
-              row['timestamp'] as int,
-            ),
-            sourceDevice: row['source_device'] as String?,
-            sourceApp: row['source_app'] as String?,
-            isFromHub: (row['is_from_hub'] as int) == 1,
-          ),
-        )
-        .toList();
+    return results.map((row) {
+      final content = row['content'] as String;
+      final mimeType = row['mime_type'] as String?;
+      final contentType = _resolveStoredContentType(
+        content: content,
+        storedValue: row['content_type'] as String?,
+        mimeType: mimeType,
+      );
+
+      return ClipboardItem(
+        id: row['id'] as String,
+        content: content,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+        sourceDevice: row['source_device'] as String?,
+        sourceApp: row['source_app'] as String?,
+        isFromHub: (row['is_from_hub'] as int) == 1,
+        contentType: contentType,
+        mimeType: mimeType,
+        contentSize: row['content_size'] as int?,
+        thumbnailPath: row['thumbnail_path'] as String?,
+      );
+    }).toList();
   }
 
   /// Search clips
@@ -271,20 +322,28 @@ class StorageService {
       limit: 50,
     );
 
-    return results
-        .map(
-          (row) => ClipboardItem(
-            id: row['id'] as String,
-            content: row['content'] as String,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(
-              row['timestamp'] as int,
-            ),
-            sourceDevice: row['source_device'] as String?,
-            sourceApp: row['source_app'] as String?,
-            isFromHub: (row['is_from_hub'] as int) == 1,
-          ),
-        )
-        .toList();
+    return results.map((row) {
+      final content = row['content'] as String;
+      final mimeType = row['mime_type'] as String?;
+      final contentType = _resolveStoredContentType(
+        content: content,
+        storedValue: row['content_type'] as String?,
+        mimeType: mimeType,
+      );
+
+      return ClipboardItem(
+        id: row['id'] as String,
+        content: content,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+        sourceDevice: row['source_device'] as String?,
+        sourceApp: row['source_app'] as String?,
+        isFromHub: (row['is_from_hub'] as int) == 1,
+        contentType: contentType,
+        mimeType: mimeType,
+        contentSize: row['content_size'] as int?,
+        thumbnailPath: row['thumbnail_path'] as String?,
+      );
+    }).toList();
   }
 
   /// Delete clip by ID
@@ -322,5 +381,79 @@ class StorageService {
   Future<void> close() async {
     await _database?.close();
     _database = null;
+  }
+
+  ClipboardContentType _resolveStoredContentType({
+    required String content,
+    String? storedValue,
+    String? mimeType,
+  }) {
+    if (mimeType != null && mimeType.startsWith('image/')) {
+      return ClipboardContentType.image;
+    }
+
+    if (storedValue != null &&
+        storedValue.isNotEmpty &&
+        storedValue != 'text') {
+      return ClipboardContentTypeX.fromString(storedValue);
+    }
+
+    if (_looksLikeBase64Image(content)) {
+      return ClipboardContentType.image;
+    }
+
+    return ClipboardContentTypeX.fromString(storedValue);
+  }
+
+  bool _looksLikeBase64Image(String content) {
+    try {
+      final normalized = content
+          .trim()
+          .replaceAll(RegExp(r'^data:[^;]+;base64,', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s+'), '');
+      if (normalized.length < 16) return false;
+
+      final bytes = base64Decode(normalized);
+      return _guessMimeTypeFromBytes(bytes) != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String? _guessMimeTypeFromBytes(List<int> bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'image/png';
+    }
+
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+
+    if (bytes.length >= 6) {
+      final header = ascii.decode(bytes.take(6).toList(), allowInvalid: true);
+      if (header == 'GIF87a' || header == 'GIF89a') {
+        return 'image/gif';
+      }
+    }
+
+    if (bytes.length >= 12) {
+      final riff = ascii.decode(bytes.take(4).toList(), allowInvalid: true);
+      final webp = ascii.decode(
+        bytes.skip(8).take(4).toList(),
+        allowInvalid: true,
+      );
+      if (riff == 'RIFF' && webp == 'WEBP') {
+        return 'image/webp';
+      }
+    }
+
+    return null;
   }
 }

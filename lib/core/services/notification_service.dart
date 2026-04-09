@@ -92,6 +92,16 @@ class NotificationService {
     return true;
   }
 
+  /// Check whether notification permission is currently granted.
+  Future<bool> hasPermission() async {
+    if (Platform.isAndroid) {
+      final status = await Permission.notification.status;
+      return status.isGranted;
+    }
+
+    return true;
+  }
+
   /// Show new clip notification with action buttons
   Future<void> showNewClipNotification({
     required String title,
@@ -99,7 +109,10 @@ class NotificationService {
     String? clipId,
     bool showActions = true,
   }) async {
-    if (!_initialized) return;
+    if (!_initialized && !await initialize()) {
+      AppLogger.warning('Skipping clip notification because init failed');
+      return;
+    }
 
     final id = clipId != null
         ? clipId.hashCode
@@ -158,7 +171,10 @@ class NotificationService {
     required String body,
     bool ongoing = false,
   }) async {
-    if (!_initialized) return;
+    if (!_initialized && !await initialize()) {
+      AppLogger.warning('Skipping connection notification because init failed');
+      return;
+    }
 
     final androidDetails = AndroidNotificationDetails(
       connectionChannelId,

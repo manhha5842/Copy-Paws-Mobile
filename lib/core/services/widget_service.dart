@@ -11,7 +11,8 @@ class WidgetService {
 
   // Widget config
   // Note: These must match the names in Android/iOS native code
-  static const String _androidWidgetName =
+  static const String _androidWidgetProviderName = 'CopyPawsWidgetProvider';
+  static const String _androidWidgetQualifiedName =
       'com.example.copypaws.CopyPawsWidgetProvider';
   static const String _iOSWidgetName = 'CopyPawsWidget';
   static const String _appGroupId = 'group.com.example.copypaws';
@@ -65,9 +66,9 @@ class WidgetService {
 
       // Update widget appearance
       await HomeWidget.updateWidget(
-        name: _androidWidgetName,
-        androidName: _androidWidgetName,
+        name: _androidWidgetProviderName,
         iOSName: _iOSWidgetName,
+        qualifiedAndroidName: _androidWidgetQualifiedName,
       );
 
       AppLogger.info('Widget updated successfully');

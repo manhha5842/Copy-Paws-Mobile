@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-import '../../../../core/constants/connection_state.dart' as app;
+import '../../../../core/constants/connection_state.dart';
+import '../../../../core/services/background_permission_service.dart';
+import '../../../../core/services/background_service.dart';
 import '../../../../core/services/connection_manager.dart';
+import '../../../../core/services/notification_service.dart';
 import '../../../../core/services/storage_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/helpers.dart';
 
 /// Settings screen for app configuration
 class SettingsScreen extends StatefulWidget {
@@ -14,21 +19,41 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   final _connectionManager = ConnectionManager.instance;
+  final _backgroundPermissionService = BackgroundPermissionService.instance;
+  final _notificationService = NotificationService.instance;
   final _storageService = StorageService.instance;
 
   bool _notificationsEnabled = true;
   bool _autoConnect = true;
   bool _syncEnabled = true;
   bool _autoCopyIncomingForeground = false;
+  bool _backgroundServiceRunning = false;
+  bool _notificationPermissionGranted = true;
+  bool _batteryOptimizationIgnored = true;
   bool _showPreview = true;
   String _appVersion = '';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshBackgroundStatus();
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -41,7 +66,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final packageInfo = await PackageInfo.fromPlatform();
     _appVersion = '${packageInfo.version} (${packageInfo.buildNumber})';
 
+    await _notificationService.initialize();
+    await _refreshBackgroundStatus();
+
     if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshBackgroundStatus() async {
+    if (!Helpers.isAndroid) {
+      if (!mounted) return;
+
+      setState(() {
+        _backgroundServiceRunning = false;
+        _notificationPermissionGranted = true;
+        _batteryOptimizationIgnored = true;
+      });
+      return;
+    }
+
+    final serviceRunning = await BackgroundService.isRunning();
+    final notificationGranted = await _notificationService.hasPermission();
+    final batteryOptimizationIgnored = await _backgroundPermissionService
+        .isIgnoringBatteryOptimizations();
+
+    if (!mounted) return;
+
+    setState(() {
+      _backgroundServiceRunning = serviceRunning;
+      _notificationPermissionGranted = notificationGranted;
+      _batteryOptimizationIgnored = batteryOptimizationIgnored;
+    });
   }
 
   @override
@@ -53,7 +107,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Connection section
           _buildSectionHeader('Connection'),
           _buildSettingsCard([
             _SettingsTile(
@@ -74,7 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: _autoConnect,
                 onChanged: (value) async {
                   await _storageService.setAutoConnect(value);
-                  setState(() => _autoConnect = value);
+                  if (mounted) setState(() => _autoConnect = value);
                 },
               ),
             ),
@@ -87,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: _syncEnabled,
                 onChanged: (value) async {
                   await _storageService.setSyncEnabled(value);
-                  setState(() => _syncEnabled = value);
+                  if (mounted) setState(() => _syncEnabled = value);
                 },
               ),
             ),
@@ -95,7 +148,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          // Notifications section
           _buildSectionHeader('Notifications'),
           _buildSettingsCard([
             _SettingsTile(
@@ -104,17 +156,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: 'Notify when new clips arrive',
               trailing: Switch(
                 value: _notificationsEnabled,
-                onChanged: (value) async {
-                  await _storageService.setNotificationsEnabled(value);
-                  setState(() => _notificationsEnabled = value);
-                },
+                onChanged: _toggleNotifications,
               ),
             ),
           ]),
 
           const SizedBox(height: 24),
 
-          // Privacy section
+          if (Helpers.isAndroid) ...[
+            _buildSectionHeader('Background'),
+            _buildSettingsCard([
+              _SettingsTile(
+                icon: Icons.memory,
+                title: 'Background Service',
+                subtitle: _backgroundServiceRunning
+                    ? 'Running. Sync can keep listening after you leave the app'
+                    : 'Not running. Start it once to keep sync alive',
+                trailing: _backgroundServiceRunning
+                    ? Icon(Icons.check_circle, color: AppColors.success)
+                    : TextButton(
+                        onPressed: _ensureBackgroundServiceRunning,
+                        child: const Text('Start'),
+                      ),
+              ),
+              const Divider(height: 1),
+              _SettingsTile(
+                icon: Icons.notifications_active,
+                title: 'Notification Permission',
+                subtitle: _notificationPermissionGranted
+                    ? 'Granted. Android can show foreground-service notifications'
+                    : 'Required on Android 13+ so the background service can stay visible',
+                trailing: _notificationPermissionGranted
+                    ? Icon(Icons.check_circle, color: AppColors.success)
+                    : TextButton(
+                        onPressed: _requestNotificationPermission,
+                        child: const Text('Allow'),
+                      ),
+              ),
+              const Divider(height: 1),
+              _SettingsTile(
+                icon: Icons.battery_saver,
+                title: 'Battery Optimization',
+                subtitle: _batteryOptimizationIgnored
+                    ? 'Disabled for CopyPaws. Android is less likely to kill sync'
+                    : 'Turn this off so silent copy and socket sync survive in background',
+                trailing: _batteryOptimizationIgnored
+                    ? Icon(Icons.check_circle, color: AppColors.success)
+                    : TextButton(
+                        onPressed: _requestBatteryOptimizationExemption,
+                        child: const Text('Allow'),
+                      ),
+              ),
+              const Divider(height: 1),
+              const _SettingsTile(
+                icon: Icons.info_outline,
+                title: 'OEM Note',
+                subtitle:
+                    'Some phones still need manual Auto-start permission in system settings',
+              ),
+            ]),
+            const SizedBox(height: 24),
+          ],
+
           _buildSectionHeader('Privacy'),
           _buildSettingsCard([
             _SettingsTile(
@@ -125,7 +228,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: _showPreview,
                 onChanged: (value) async {
                   await _storageService.setShowPreview(value);
-                  setState(() => _showPreview = value);
+                  if (mounted) setState(() => _showPreview = value);
                 },
               ),
             ),
@@ -138,7 +241,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: _autoCopyIncomingForeground,
                 onChanged: (value) async {
                   await _storageService.setAutoCopyIncomingForeground(value);
-                  setState(() => _autoCopyIncomingForeground = value);
+                  if (mounted) {
+                    setState(() => _autoCopyIncomingForeground = value);
+                  }
                 },
               ),
             ),
@@ -163,7 +268,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          // About section
           _buildSectionHeader('About'),
           _buildSettingsCard([
             _SettingsTile(
@@ -213,6 +317,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSettingsCard(List<Widget> children) {
     return Card(child: Column(children: children));
+  }
+
+  Future<void> _toggleNotifications(bool value) async {
+    var nextValue = value;
+
+    if (value) {
+      nextValue = await _notificationService.requestPermission();
+      if (!nextValue && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Notification permission not granted'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: () {
+                openAppSettings();
+              },
+            ),
+          ),
+        );
+      }
+    }
+
+    await _storageService.setNotificationsEnabled(nextValue);
+    await _refreshBackgroundStatus();
+
+    if (mounted) setState(() => _notificationsEnabled = nextValue);
+  }
+
+  Future<void> _ensureBackgroundServiceRunning() async {
+    final started = await BackgroundService.ensureRunning();
+    await _refreshBackgroundStatus();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          started
+              ? 'Background service is running'
+              : 'Could not start background service',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    final granted = await _notificationService.requestPermission();
+    await _refreshBackgroundStatus();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          granted
+              ? 'Notification permission granted'
+              : 'Please allow notifications in Android settings',
+        ),
+        action: granted
+            ? null
+            : SnackBarAction(
+                label: 'Settings',
+                onPressed: () {
+                  openAppSettings();
+                },
+              ),
+      ),
+    );
+  }
+
+  Future<void> _requestBatteryOptimizationExemption() async {
+    final launched = await _backgroundPermissionService
+        .requestIgnoreBatteryOptimizations();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          launched
+              ? 'Android settings opened. Allow CopyPaws to run without battery optimization'
+              : 'Could not open battery optimization settings',
+        ),
+        action: launched
+            ? SnackBarAction(
+                label: 'More',
+                onPressed: () {
+                  _backgroundPermissionService
+                      .openBatteryOptimizationSettings();
+                },
+              )
+            : null,
+      ),
+    );
   }
 
   void _showClearHistoryDialog() {
@@ -305,6 +503,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _connectionManager.connectionState.displayName,
             ),
             _buildDebugRow('Is Paired', _connectionManager.isPaired.toString()),
+            _buildDebugRow(
+              'Background Service',
+              _backgroundServiceRunning ? 'Running' : 'Stopped',
+            ),
+            _buildDebugRow(
+              'Notifications',
+              _notificationPermissionGranted ? 'Granted' : 'Not granted',
+            ),
+            _buildDebugRow(
+              'Battery Optimization',
+              _batteryOptimizationIgnored ? 'Ignored' : 'Active',
+            ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,

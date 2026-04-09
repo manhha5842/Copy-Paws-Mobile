@@ -16,6 +16,7 @@ export 'models/hub_info.dart';
 // Services
 export 'services/auto_connect_service.dart';
 export 'services/background_service.dart';
+export 'services/background_permission_service.dart';
 export 'services/clipboard_service.dart';
 export 'services/connection_manager.dart';
 export 'services/discovery_service.dart';

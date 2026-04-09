@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'core/config/app_config.dart';
 import 'core/services/background_service.dart';
+import 'core/services/notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/scan/presentation/screens/scan_qr_screen.dart';
@@ -28,6 +29,9 @@ void main() async {
 
   // Initialize background service
   await BackgroundService.initialize();
+
+  // Prepare notification channels before sync or background flows use them.
+  await NotificationService.instance.initialize();
 
   print('✅ App initialization complete');
   print('═══════════════════════════════════════');

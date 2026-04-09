@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 
@@ -8,6 +9,9 @@ import '../utils/logger.dart';
 class ClipboardService {
   ClipboardService._();
   static final ClipboardService instance = ClipboardService._();
+  static const MethodChannel _imageClipboardChannel = MethodChannel(
+    'clipboard_image_channel',
+  );
 
   // Stream controller for clipboard changes
   final _clipboardChangeController = StreamController<String>.broadcast();
@@ -42,6 +46,46 @@ class ClipboardService {
       return true;
     } catch (e) {
       AppLogger.error('Failed to set clipboard', error: e);
+      return false;
+    }
+  }
+
+  /// Set image content on the system clipboard.
+  /// Android uses a native clipboard URI because Flutter's Clipboard API is text-only.
+  Future<bool> setImageContent({
+    required String base64Data,
+    String? mimeType,
+    String? clipId,
+  }) async {
+    if (!Platform.isAndroid) {
+      AppLogger.warning('Image clipboard copy is only supported on Android');
+      return false;
+    }
+
+    final normalizedBase64 = _normalizeBase64ImageData(base64Data);
+    if (normalizedBase64.isEmpty) {
+      AppLogger.warning('Cannot copy image: base64 payload is empty');
+      return false;
+    }
+
+    try {
+      final success =
+          await _imageClipboardChannel.invokeMethod<bool>('setImageContent', {
+            'base64Data': normalizedBase64,
+            if (mimeType != null && mimeType.isNotEmpty) 'mimeType': mimeType,
+            if (clipId != null && clipId.isNotEmpty) 'clipId': clipId,
+          }) ??
+          false;
+
+      if (success) {
+        AppLogger.info('Image copied to clipboard');
+      } else {
+        AppLogger.warning('Native image clipboard copy returned false');
+      }
+
+      return success;
+    } catch (e) {
+      AppLogger.error('Failed to set image clipboard content', error: e);
       return false;
     }
   }
@@ -107,5 +151,19 @@ class ClipboardService {
   void dispose() {
     stopMonitoring();
     _clipboardChangeController.close();
+  }
+
+  String _normalizeBase64ImageData(String base64Data) {
+    final trimmed = base64Data.trim();
+    if (trimmed.isEmpty) return '';
+
+    final dataUriMatch = RegExp(
+      r'^data:[^;]+;base64,(.+)$',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(trimmed);
+
+    final normalized = dataUriMatch?.group(1) ?? trimmed;
+    return normalized.replaceAll(RegExp(r'\s+'), '');
   }
 }

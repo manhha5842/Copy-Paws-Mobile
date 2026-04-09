@@ -83,8 +83,18 @@ class SyncService {
     _incomingClips.addAll(history.where((c) => c.isFromHub).take(20));
     _incomingClipsController.add(List.from(_incomingClips));
 
-    // Initialize widget service
-    await _widgetService.initialize();
+    // Widgets are optional for sync; background isolates should keep running
+    // even if widget integration is unavailable on a given device/runtime.
+    try {
+      await _widgetService.initialize();
+    } catch (e, stackTrace) {
+      AppLogger.warning('Widget service init failed, continuing without it');
+      AppLogger.error(
+        'Widget service init failure',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
 
     _isInitialized = true;
     AppLogger.info('✅ SyncService initialized successfully');
@@ -167,7 +177,7 @@ class SyncService {
 
   /// Copy an incoming clip to system clipboard
   Future<bool> copyToClipboard(ClipboardItem clip) async {
-    final success = await _clipService.setContent(clip.content);
+    final success = await _copyClipContent(clip);
     if (success) {
       AppLogger.info('Copied clip to clipboard: ${clip.id}');
     }
@@ -230,6 +240,10 @@ class SyncService {
       String clipId;
       String? sourceApp;
       int? timestamp;
+      String? explicitContentType;
+      String? mimeType;
+      int? contentSize;
+      String? thumbnailPath;
 
       // Check if it's an ENCRYPTED wrapper
       if (data['type'] == 'ENCRYPTED') {
@@ -275,6 +289,10 @@ class SyncService {
           clipId = innerData['clip_id'] as String? ?? const Uuid().v4();
           sourceApp = innerData['source_app'] as String?;
           timestamp = innerData['timestamp'] as int?;
+          explicitContentType = innerData['content_type'] as String?;
+          mimeType = innerData['mime_type'] as String?;
+          contentSize = innerData['content_size'] as int?;
+          thumbnailPath = innerData['thumbnail_path'] as String?;
         } else {
           // Single-layer encrypted content (rare case)
           content = decryptedJson;
@@ -295,6 +313,10 @@ class SyncService {
         clipId = data['clip_id'] as String? ?? const Uuid().v4();
         sourceApp = data['source_app'] as String?;
         timestamp = data['timestamp'] as int?;
+        explicitContentType = data['content_type'] as String?;
+        mimeType = data['mime_type'] as String?;
+        contentSize = data['content_size'] as int?;
+        thumbnailPath = data['thumbnail_path'] as String?;
       }
 
       if (content.isEmpty) {
@@ -302,20 +324,49 @@ class SyncService {
         return;
       }
 
+      final normalizedPayload = _normalizeIncomingClipPayload(
+        content: content,
+        explicitContentType: explicitContentType,
+        explicitMimeType: mimeType,
+        explicitContentSize: contentSize,
+      );
+
       AppLogger.info(
         'Successfully decrypted clip content: ${content.length} chars',
       );
 
       final clip = ClipboardItem(
         id: clipId,
-        content: content,
+        content: normalizedPayload.content,
         timestamp: timestamp != null
             ? DateTime.fromMillisecondsSinceEpoch(timestamp)
             : DateTime.now(),
         sourceDevice: _connectionManager.currentHub?.name,
         sourceApp: sourceApp,
         isFromHub: true,
+        contentType: normalizedPayload.contentType,
+        mimeType: normalizedPayload.mimeType,
+        contentSize: normalizedPayload.contentSize,
+        thumbnailPath: thumbnailPath,
       );
+
+      final isNewClip = await _storageService.saveClipIfNew(clip);
+      if (!isNewClip) {
+        final existsInMemory = _incomingClips.any((c) => c.id == clip.id);
+
+        // If the background isolate stored the clip first, the foreground UI
+        // still needs to surface it locally once without replaying side effects.
+        if (_isAppInForeground && !existsInMemory) {
+          _incomingClips.insert(0, clip);
+          if (_incomingClips.length > 50) {
+            _incomingClips.removeLast();
+          }
+          _incomingClipsController.add(List.from(_incomingClips));
+        }
+
+        AppLogger.debug('Skipping duplicate incoming clip: ${clip.id}');
+        return;
+      }
 
       // Add to incoming clips
       _incomingClips.insert(0, clip);
@@ -325,16 +376,13 @@ class SyncService {
       _incomingClipsController.add(List.from(_incomingClips));
       _newClipController.add(clip);
 
-      // Save to database
-      _storageService.saveClip(clip);
-
       final shouldAutoCopy =
           _storageService.autoCopyIncomingForeground &&
           (_isAppInForeground || Platform.isAndroid);
       final alreadyCopied = _storageService.lastAutoCopiedClipId == clip.id;
 
       if (shouldAutoCopy && !alreadyCopied) {
-        final copied = await _clipService.setContent(clip.content);
+        final copied = await _copyClipContent(clip);
         if (copied) {
           await _storageService.setLastAutoCopiedClipId(clip.id);
           AppLogger.info(
@@ -350,7 +398,7 @@ class SyncService {
 
       // Show notification
       if (_storageService.notificationsEnabled) {
-        _notificationService.showNewClipNotification(
+        await _notificationService.showNewClipNotification(
           title: 'New clip from ${clip.sourceDevice ?? "Hub"}',
           body: clip.preview,
           clipId: clip.id,
@@ -369,6 +417,168 @@ class SyncService {
     }
   }
 
+  Future<bool> _copyClipContent(ClipboardItem clip) async {
+    if (_shouldTreatClipAsImage(clip)) {
+      return _clipService.setImageContent(
+        base64Data: clip.content,
+        mimeType: clip.mimeType ?? _guessMimeTypeFromBase64(clip.content),
+        clipId: clip.id,
+      );
+    }
+
+    return _clipService.setContent(clip.content);
+  }
+
+  bool _shouldTreatClipAsImage(ClipboardItem clip) {
+    if (clip.isImage) return true;
+    if (clip.mimeType != null && clip.mimeType!.startsWith('image/')) {
+      return true;
+    }
+    return _looksLikeBase64Image(clip.content);
+  }
+
+  _NormalizedClipPayload _normalizeIncomingClipPayload({
+    required String content,
+    String? explicitContentType,
+    String? explicitMimeType,
+    int? explicitContentSize,
+  }) {
+    final trimmedContent = content.trim();
+    final mimeTypeFromDataUri = _extractMimeTypeFromDataUri(trimmedContent);
+    final normalizedContent = _stripDataUriPrefix(trimmedContent);
+    final resolvedMimeType = explicitMimeType ?? mimeTypeFromDataUri;
+    final resolvedContentType = _resolveContentType(
+      explicitContentType: explicitContentType,
+      mimeType: resolvedMimeType,
+      normalizedContent: normalizedContent,
+      originalContent: trimmedContent,
+    );
+
+    return _NormalizedClipPayload(
+      content: resolvedContentType == ClipboardContentType.image
+          ? normalizedContent
+          : content,
+      contentType: resolvedContentType,
+      mimeType: resolvedContentType == ClipboardContentType.image
+          ? (resolvedMimeType ?? _guessMimeTypeFromBase64(normalizedContent))
+          : resolvedMimeType,
+      contentSize: resolvedContentType == ClipboardContentType.image
+          ? (explicitContentSize ??
+                _computeBase64ContentSize(normalizedContent))
+          : explicitContentSize,
+    );
+  }
+
+  ClipboardContentType _resolveContentType({
+    String? explicitContentType,
+    String? mimeType,
+    required String normalizedContent,
+    required String originalContent,
+  }) {
+    final parsedType = ClipboardContentTypeX.fromString(explicitContentType);
+    if (explicitContentType != null && explicitContentType.isNotEmpty) {
+      return parsedType;
+    }
+
+    if (mimeType != null && mimeType.startsWith('image/')) {
+      return ClipboardContentType.image;
+    }
+
+    if (originalContent.startsWith('data:image/')) {
+      return ClipboardContentType.image;
+    }
+
+    if (_looksLikeBase64Image(normalizedContent)) {
+      return ClipboardContentType.image;
+    }
+
+    return ClipboardContentType.text;
+  }
+
+  String _stripDataUriPrefix(String content) {
+    final match = RegExp(
+      r'^data:[^;]+;base64,(.+)$',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(content);
+    if (match == null) {
+      return content.replaceAll(RegExp(r'\s+'), '');
+    }
+    return match.group(1)!.replaceAll(RegExp(r'\s+'), '');
+  }
+
+  String? _extractMimeTypeFromDataUri(String content) {
+    final match = RegExp(
+      r'^data:([^;]+);base64,',
+      caseSensitive: false,
+    ).firstMatch(content);
+    return match?.group(1);
+  }
+
+  bool _looksLikeBase64Image(String content) {
+    if (content.isEmpty || content.length < 16) return false;
+
+    try {
+      final bytes = base64Decode(content);
+      return _guessMimeTypeFromBytes(bytes) != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String? _guessMimeTypeFromBase64(String content) {
+    try {
+      return _guessMimeTypeFromBytes(base64Decode(content));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _guessMimeTypeFromBytes(List<int> bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'image/png';
+    }
+
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+
+    if (bytes.length >= 6) {
+      final header = ascii.decode(bytes.take(6).toList(), allowInvalid: true);
+      if (header == 'GIF87a' || header == 'GIF89a') {
+        return 'image/gif';
+      }
+    }
+
+    if (bytes.length >= 12) {
+      final riff = ascii.decode(bytes.take(4).toList(), allowInvalid: true);
+      final webp = ascii.decode(
+        bytes.skip(8).take(4).toList(),
+        allowInvalid: true,
+      );
+      if (riff == 'RIFF' && webp == 'WEBP') {
+        return 'image/webp';
+      }
+    }
+
+    return null;
+  }
+
+  int? _computeBase64ContentSize(String content) {
+    try {
+      return base64Decode(content).length;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _messageSubscription?.cancel();
@@ -376,4 +586,18 @@ class SyncService {
     _incomingClipsController.close();
     _newClipController.close();
   }
+}
+
+class _NormalizedClipPayload {
+  const _NormalizedClipPayload({
+    required this.content,
+    required this.contentType,
+    this.mimeType,
+    this.contentSize,
+  });
+
+  final String content;
+  final ClipboardContentType contentType;
+  final String? mimeType;
+  final int? contentSize;
 }

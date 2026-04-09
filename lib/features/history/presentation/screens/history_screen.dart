@@ -327,7 +327,7 @@ class _HistoryClipItem extends StatelessWidget {
 
               // Content
               Text(
-                clip.content,
+                clip.preview,
                 maxLines: 4,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 14),
@@ -339,8 +339,11 @@ class _HistoryClipItem extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 child: ElevatedButton.icon(
                   onPressed: onCopy,
-                  icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('Copy'),
+                  icon: Icon(
+                    clip.isImage ? Icons.image_outlined : Icons.copy,
+                    size: 16,
+                  ),
+                  label: Text(clip.isImage ? 'Copy Image' : 'Copy'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
