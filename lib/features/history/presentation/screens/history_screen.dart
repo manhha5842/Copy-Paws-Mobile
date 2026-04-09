@@ -192,7 +192,24 @@ class _HistoryScreenState extends State<HistoryScreen>
   }
 
   Future<void> _copyClip(ClipboardItem clip) async {
-    final success = await _syncService.copyToClipboard(clip);
+    var clipToCopy = clip;
+    final fullClip = await _storageService.getClipById(clipToCopy.id);
+    if (fullClip != null) {
+      clipToCopy = fullClip;
+    }
+
+    if (clipToCopy.content.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Clip content is unavailable'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    final success = await _syncService.copyToClipboard(clipToCopy);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

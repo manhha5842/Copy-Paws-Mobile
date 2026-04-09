@@ -28,6 +28,8 @@ class ConnectionManager {
   String? _deviceId;
   String? _deviceName;
   bool _isPaired = false;
+  bool _isInitialized = false;
+  StreamSubscription<app.ConnectionState>? _wsConnectionStateSubscription;
 
   // Stream controllers
   final _connectionStateController =
@@ -47,6 +49,11 @@ class ConnectionManager {
 
   /// Initialize connection manager
   Future<void> initialize() async {
+    if (_isInitialized) {
+      _emitSnapshot();
+      return;
+    }
+
     AppLogger.info('Initializing connection manager');
 
     // Initialize storage first
@@ -82,9 +89,14 @@ class ConnectionManager {
     }
 
     // Forward WebSocket connection state
-    _wsService.connectionStateStream.listen((state) {
+    _wsConnectionStateSubscription = _wsService.connectionStateStream.listen((
+      state,
+    ) {
       _connectionStateController.add(state);
     });
+
+    _isInitialized = true;
+    _emitSnapshot();
   }
 
   /// Auto-connect to saved hub if available
@@ -163,6 +175,7 @@ class ConnectionManager {
       // Update hub with connection time
       _currentHub = hub.copyWith(isPaired: true, lastConnected: DateTime.now());
       await _storageService.saveHubInfo(_currentHub!);
+      _emitSnapshot();
     }
 
     return success;
@@ -214,6 +227,7 @@ class ConnectionManager {
     _isPaired = true;
     _currentHub = hub.copyWith(isPaired: true, lastConnected: DateTime.now());
     await _storageService.saveHubInfo(_currentHub!);
+    _emitSnapshot();
 
     AppLogger.info('Pairing successful');
     return true;
@@ -260,6 +274,7 @@ class ConnectionManager {
   /// Disconnect from current hub
   Future<void> disconnect() async {
     await _wsService.disconnect();
+    _emitSnapshot();
   }
 
   /// Reconnect to current hub
@@ -280,6 +295,7 @@ class ConnectionManager {
     _currentHub = null;
     _isPaired = false;
     _hubChangedController.add(null);
+    _emitSnapshot();
   }
 
   /// Start discovering hubs on the network
@@ -325,7 +341,13 @@ class ConnectionManager {
 
   /// Dispose resources
   void dispose() {
+    _wsConnectionStateSubscription?.cancel();
     _connectionStateController.close();
     _hubChangedController.close();
+  }
+
+  void _emitSnapshot() {
+    _connectionStateController.add(_wsService.connectionState);
+    _hubChangedController.add(_currentHub);
   }
 }

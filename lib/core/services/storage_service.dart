@@ -233,6 +233,50 @@ class StorageService {
     await _prefs?.setBool(StorageKeys.showPreview, enabled);
   }
 
+  /// Reload shared preferences so values written by background isolates become visible.
+  Future<void> reloadPreferences() async {
+    await _prefs?.reload();
+  }
+
+  /// Persist the latest background connection snapshot for the UI isolate.
+  Future<void> saveBackgroundConnectionSnapshot({
+    required String connectionState,
+    required bool isConnected,
+    String? hubName,
+    String? hubEndpoint,
+  }) async {
+    await _prefs?.setString(
+      StorageKeys.backgroundConnectionState,
+      connectionState,
+    );
+    await _prefs?.setBool(StorageKeys.backgroundIsConnected, isConnected);
+
+    if (hubName == null || hubName.isEmpty) {
+      await _prefs?.remove(StorageKeys.backgroundHubName);
+    } else {
+      await _prefs?.setString(StorageKeys.backgroundHubName, hubName);
+    }
+
+    if (hubEndpoint == null || hubEndpoint.isEmpty) {
+      await _prefs?.remove(StorageKeys.backgroundHubEndpoint);
+    } else {
+      await _prefs?.setString(StorageKeys.backgroundHubEndpoint, hubEndpoint);
+    }
+  }
+
+  /// Read the last background connection snapshot shared between isolates.
+  Map<String, dynamic> getBackgroundConnectionSnapshot() {
+    return {
+      'connectionState': _prefs?.getString(
+        StorageKeys.backgroundConnectionState,
+      ),
+      'hubName': _prefs?.getString(StorageKeys.backgroundHubName),
+      'hubEndpoint': _prefs?.getString(StorageKeys.backgroundHubEndpoint),
+      'isConnected':
+          _prefs?.getBool(StorageKeys.backgroundIsConnected) ?? false,
+    };
+  }
+
   // ===== Clipboard History (SQLite) =====
 
   /// Save clipboard item to history
@@ -280,70 +324,107 @@ class StorageService {
   Future<List<ClipboardItem>> getClipHistory({int limit = 100}) async {
     if (_database == null) return [];
 
-    final results = await _database!.query(
-      'clips',
-      orderBy: 'timestamp DESC',
-      limit: limit,
-    );
-
-    return results.map((row) {
-      final content = row['content'] as String;
-      final mimeType = row['mime_type'] as String?;
-      final contentType = _resolveStoredContentType(
-        content: content,
-        storedValue: row['content_type'] as String?,
-        mimeType: mimeType,
+    try {
+      final results = await _database!.rawQuery(
+        '''
+        SELECT
+          id,
+          CASE
+            WHEN COALESCE(content_type, 'text') = 'image'
+              OR COALESCE(mime_type, '') LIKE 'image/%'
+            THEN ''
+            ELSE SUBSTR(content, 1, 4096)
+          END AS content,
+          timestamp,
+          source_device,
+          source_app,
+          is_from_hub,
+          content_type,
+          mime_type,
+          content_size,
+          thumbnail_path
+        FROM clips
+        ORDER BY timestamp DESC
+        LIMIT ?
+        ''',
+        [limit],
       );
 
-      return ClipboardItem(
-        id: row['id'] as String,
-        content: content,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
-        sourceDevice: row['source_device'] as String?,
-        sourceApp: row['source_app'] as String?,
-        isFromHub: (row['is_from_hub'] as int) == 1,
-        contentType: contentType,
-        mimeType: mimeType,
-        contentSize: row['content_size'] as int?,
-        thumbnailPath: row['thumbnail_path'] as String?,
+      return results.map(_mapClipRow).toList();
+    } catch (e, stackTrace) {
+      AppLogger.error(
+        'Failed to load clip history',
+        error: e,
+        stackTrace: stackTrace,
       );
-    }).toList();
+      return [];
+    }
   }
 
   /// Search clips
   Future<List<ClipboardItem>> searchClips(String query) async {
     if (_database == null) return [];
 
-    final results = await _database!.query(
-      'clips',
-      where: 'content LIKE ?',
-      whereArgs: ['%$query%'],
-      orderBy: 'timestamp DESC',
-      limit: 50,
-    );
-
-    return results.map((row) {
-      final content = row['content'] as String;
-      final mimeType = row['mime_type'] as String?;
-      final contentType = _resolveStoredContentType(
-        content: content,
-        storedValue: row['content_type'] as String?,
-        mimeType: mimeType,
+    try {
+      final results = await _database!.rawQuery(
+        '''
+        SELECT
+          id,
+          CASE
+            WHEN COALESCE(content_type, 'text') = 'image'
+              OR COALESCE(mime_type, '') LIKE 'image/%'
+            THEN ''
+            ELSE SUBSTR(content, 1, 4096)
+          END AS content,
+          timestamp,
+          source_device,
+          source_app,
+          is_from_hub,
+          content_type,
+          mime_type,
+          content_size,
+          thumbnail_path
+        FROM clips
+        WHERE content LIKE ?
+        ORDER BY timestamp DESC
+        LIMIT 50
+        ''',
+        ['%$query%'],
       );
 
-      return ClipboardItem(
-        id: row['id'] as String,
-        content: content,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
-        sourceDevice: row['source_device'] as String?,
-        sourceApp: row['source_app'] as String?,
-        isFromHub: (row['is_from_hub'] as int) == 1,
-        contentType: contentType,
-        mimeType: mimeType,
-        contentSize: row['content_size'] as int?,
-        thumbnailPath: row['thumbnail_path'] as String?,
+      return results.map(_mapClipRow).toList();
+    } catch (e, stackTrace) {
+      AppLogger.error(
+        'Failed to search clip history',
+        error: e,
+        stackTrace: stackTrace,
       );
-    }).toList();
+      return [];
+    }
+  }
+
+  /// Load a single clip with its full content payload.
+  Future<ClipboardItem?> getClipById(String id) async {
+    if (_database == null) return null;
+
+    try {
+      final results = await _database!.query(
+        'clips',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+
+      if (results.isEmpty) return null;
+      return _mapClipRow(results.first);
+    } catch (e, stackTrace) {
+      AppLogger.error(
+        'Failed to load clip by id',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   /// Delete clip by ID
@@ -381,6 +462,29 @@ class StorageService {
   Future<void> close() async {
     await _database?.close();
     _database = null;
+  }
+
+  ClipboardItem _mapClipRow(Map<String, Object?> row) {
+    final content = row['content'] as String? ?? '';
+    final mimeType = row['mime_type'] as String?;
+    final contentType = _resolveStoredContentType(
+      content: content,
+      storedValue: row['content_type'] as String?,
+      mimeType: mimeType,
+    );
+
+    return ClipboardItem(
+      id: row['id'] as String,
+      content: content,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+      sourceDevice: row['source_device'] as String?,
+      sourceApp: row['source_app'] as String?,
+      isFromHub: (row['is_from_hub'] as int) == 1,
+      contentType: contentType,
+      mimeType: mimeType,
+      contentSize: row['content_size'] as int?,
+      thumbnailPath: row['thumbnail_path'] as String?,
+    );
   }
 
   ClipboardContentType _resolveStoredContentType({

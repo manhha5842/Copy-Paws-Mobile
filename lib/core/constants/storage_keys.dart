@@ -25,6 +25,10 @@ class StorageKeys {
       'auto_copy_incoming_foreground';
   static const String showPreview = 'show_preview';
   static const String lastAutoCopiedClipId = 'last_auto_copied_clip_id';
+  static const String backgroundConnectionState = 'background_connection_state';
+  static const String backgroundHubName = 'background_hub_name';
+  static const String backgroundHubEndpoint = 'background_hub_endpoint';
+  static const String backgroundIsConnected = 'background_is_connected';
 
   // Cache
   static const String clipHistoryCache = 'clip_history_cache';

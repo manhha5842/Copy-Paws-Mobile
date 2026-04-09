@@ -10,6 +10,8 @@ import '../../../../core/services/sync_service.dart';
 import '../../../../core/services/storage_service.dart';
 import '../../../../core/services/widget_service.dart';
 import '../../../../core/services/auto_connect_service.dart';
+import '../../../../core/services/background_service.dart';
+import '../../../../core/services/clipboard_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/logger.dart';
 import '../../widgets/connection_status_card.dart';
@@ -44,6 +46,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? _connectionStateSubscription;
   StreamSubscription? _hubSubscription;
   StreamSubscription? _clipsSubscription;
+  StreamSubscription? _backgroundConnectionSubscription;
+  Timer? _backgroundSyncTimer;
+  app.ConnectionState? _backgroundConnectionState;
+  String? _backgroundHubName;
 
   @override
   void initState() {
@@ -60,6 +66,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connectionStateSubscription?.cancel();
     _hubSubscription?.cancel();
     _clipsSubscription?.cancel();
+    _backgroundConnectionSubscription?.cancel();
+    _backgroundSyncTimer?.cancel();
     super.dispose();
   }
 
@@ -67,14 +75,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _syncService.setAppInForeground(state == AppLifecycleState.resumed);
 
-    if (state == AppLifecycleState.resumed) {
-      AppLogger.info('App resumed from background');
-      // Use AutoConnectService for better reconnection handling
-      _autoConnectService.onAppResume();
-      // Request latest clips if connected
-      if (_connectionManager.isConnected) {
-        _syncService.requestLatest();
-      }
+    if (state != AppLifecycleState.resumed) {
+      _backgroundSyncTimer?.cancel();
+      return;
+    }
+
+    AppLogger.info('App resumed from background');
+    _startBackgroundSyncPolling();
+    // Use AutoConnectService for better reconnection handling
+    _autoConnectService.onAppResume();
+    BackgroundService.requestConnectionSnapshot();
+    _syncSharedBackgroundState(force: true);
+    // Request latest clips if connected
+    if (_connectionManager.isConnected) {
+      _syncService.requestLatest();
     }
   }
 
@@ -91,10 +105,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Register widget callback to handle deep link actions from Android
     await _widgetService.registerBackgroundCallback(_handleWidgetAction);
 
+    _backgroundConnectionSubscription = BackgroundService
+        .connectionSnapshotStream
+        .listen(_handleBackgroundConnectionSnapshot);
+    _startBackgroundSyncPolling();
+
     // Get initial state
-    _connectedHub = _connectionManager.currentHub;
-    _connectionState = _connectionManager.connectionState;
+    _syncConnectionSnapshot();
     _incomingClips = _syncService.incomingClips;
+    await _syncSharedBackgroundState(force: true);
 
     // Subscribe to streams
     _connectionStateSubscription = _connectionManager.connectionStateStream
@@ -115,6 +134,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() => _incomingClips = clips);
       }
     });
+
+    BackgroundService.requestConnectionSnapshot();
 
     // Auto-connect on app launch using AutoConnectService
     await _autoConnectService.onAppLaunch();
@@ -189,15 +210,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 // Connection Status Card
                 ConnectionStatusCard(
-                  connectionState: _connectionState,
-                  hubName: _connectedHub?.name,
+                  connectionState: _displayConnectionState,
+                  hubName: _displayHubName,
                   onTap: _handleConnectionTap,
                 ),
                 const SizedBox(height: 24),
 
                 // Push to Hub Button
                 PushButton(
-                  isEnabled: _connectionState.isActive && !_isPushing,
+                  isEnabled: _canPushToHub && !_isPushing,
                   isLoading: _isPushing,
                   onPressed: _handlePushToHub,
                 ),
@@ -208,11 +229,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onScanQR: () async {
                     final result = await Navigator.pushNamed(context, '/scan');
                     if (result != null && result is HubInfo) {
-                      setState(() => _connectedHub = result);
+                      _syncConnectionSnapshot(fallbackHub: result);
+                      _syncSharedBackgroundState(force: true);
                     }
                   },
                   onManualConnect: _showManualConnectDialog,
-                  isConnected: _connectionState.isActive,
+                  isConnected: _displayConnectionState.isActive,
                 ),
                 const SizedBox(height: 24),
 
@@ -254,13 +276,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _handleRefresh() async {
     if (_connectionManager.isConnected) {
       await _syncService.requestLatest();
+    } else if (_isBackgroundConnected) {
+      BackgroundService.requestLatestFromBackground();
     } else if (_connectedHub != null) {
       await _connectionManager.reconnect();
     }
+
+    _syncConnectionSnapshot();
+    await _syncSharedBackgroundState(force: true);
   }
 
   void _handleConnectionTap() {
-    if (_connectionState.isActive) {
+    if (_displayConnectionState.isActive) {
       _showDisconnectDialog();
     } else {
       Navigator.pushNamed(context, '/scan');
@@ -270,7 +297,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _handlePushToHub() async {
     setState(() => _isPushing = true);
 
-    final success = await _syncService.pushClipboard();
+    bool success;
+    if (_connectionManager.isConnected) {
+      success = await _syncService.pushClipboard();
+    } else if (_isBackgroundConnected) {
+      final content = await ClipboardService.instance.getContent();
+      success = content != null && content.isNotEmpty;
+      if (success) {
+        BackgroundService.pushClipboardText(content!);
+      }
+    } else {
+      success = false;
+    }
 
     setState(() => _isPushing = false);
 
@@ -287,11 +325,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _handleCopyClip(String clipId) async {
-    final clip = _incomingClips.firstWhere(
+    var clip = _incomingClips.firstWhere(
       (c) => c.id == clipId,
       orElse: () =>
           ClipboardItem(id: '', content: '', timestamp: DateTime.now()),
     );
+
+    if (clip.id.isEmpty) return;
+
+    final fullClip = await _storageService.getClipById(clip.id);
+    if (fullClip != null) {
+      clip = fullClip;
+    }
 
     if (clip.content.isEmpty) return;
 
@@ -369,6 +414,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               );
 
               final success = await _connectionManager.connect(hub);
+              _syncConnectionSnapshot(fallbackHub: hub);
 
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -404,7 +450,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              await _connectionManager.disconnect();
+              if (_connectionManager.isConnected) {
+                await _connectionManager.disconnect();
+              }
+              if (_isBackgroundConnected) {
+                BackgroundService.disconnectHubInBackground();
+              }
+              _syncConnectionSnapshot();
+              _syncSharedBackgroundState(force: true);
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Disconnect'),
@@ -412,5 +465,109 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  void _syncConnectionSnapshot({HubInfo? fallbackHub}) {
+    if (!mounted) return;
+
+    setState(() {
+      _connectedHub = _connectionManager.currentHub ?? fallbackHub;
+      _connectionState = _connectionManager.connectionState;
+    });
+  }
+
+  void _handleBackgroundConnectionSnapshot(
+    BackgroundConnectionSnapshot snapshot,
+  ) {
+    if (!mounted) return;
+
+    setState(() {
+      _backgroundConnectionState = snapshot.connectionState;
+      _backgroundHubName = snapshot.hubName;
+    });
+
+    _syncSharedBackgroundState(force: true);
+  }
+
+  bool get _isBackgroundConnected =>
+      _backgroundConnectionState == app.ConnectionState.connected;
+
+  bool get _canPushToHub =>
+      _connectionManager.isConnected || _isBackgroundConnected;
+
+  app.ConnectionState get _displayConnectionState {
+    if (_connectionState.isLoading || _connectionState.isActive) {
+      return _connectionState;
+    }
+
+    final backgroundState = _backgroundConnectionState;
+    if (backgroundState != null &&
+        (backgroundState.isLoading || backgroundState.isActive)) {
+      return backgroundState;
+    }
+
+    return _connectionState;
+  }
+
+  String? get _displayHubName => _connectedHub?.name ?? _backgroundHubName;
+
+  void _startBackgroundSyncPolling() {
+    _backgroundSyncTimer?.cancel();
+    _backgroundSyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _syncSharedBackgroundState();
+    });
+  }
+
+  Future<void> _syncSharedBackgroundState({bool force = false}) async {
+    await _storageService.reloadPreferences();
+    final snapshot = _storageService.getBackgroundConnectionSnapshot();
+    final nextBackgroundState = app.ConnectionStateX.fromString(
+      snapshot['connectionState'] as String?,
+    );
+    final nextBackgroundHubName = snapshot['hubName'] as String?;
+
+    final history = await _storageService.getClipHistory(limit: 100);
+    final nextIncomingClips = history
+        .where((clip) => clip.isFromHub)
+        .take(20)
+        .toList();
+
+    if (!mounted) return;
+
+    final connectionChanged =
+        force ||
+        _backgroundConnectionState != nextBackgroundState ||
+        _backgroundHubName != nextBackgroundHubName;
+    final clipsChanged =
+        force || !_sameClipList(_incomingClips, nextIncomingClips);
+
+    if (!connectionChanged && !clipsChanged) return;
+
+    setState(() {
+      if (connectionChanged) {
+        _backgroundConnectionState = nextBackgroundState;
+        _backgroundHubName = nextBackgroundHubName;
+      }
+      if (clipsChanged) {
+        _incomingClips = nextIncomingClips;
+      }
+    });
+  }
+
+  bool _sameClipList(List<ClipboardItem> left, List<ClipboardItem> right) {
+    if (identical(left, right)) return true;
+    if (left.length != right.length) return false;
+
+    for (var i = 0; i < left.length; i++) {
+      final leftClip = left[i];
+      final rightClip = right[i];
+      if (leftClip.id != rightClip.id ||
+          leftClip.timestamp != rightClip.timestamp ||
+          leftClip.content != rightClip.content) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }

@@ -15,6 +15,49 @@ import '../constants/connection_state.dart' as app_state;
 class BackgroundService {
   static const String notificationChannelId = 'copypaws_bg_service';
   static const int notificationId = 888;
+  static const String _connectionStatusMethod = 'connection_status';
+  static const String _requestConnectionStatusMethod =
+      'request_connection_status';
+  static const String _requestLatestMethod = 'request_latest';
+  static const String _pushClipboardTextMethod = 'push_clip_text';
+  static const String _disconnectHubMethod = 'disconnect_hub';
+
+  static Stream<BackgroundConnectionSnapshot> get connectionSnapshotStream {
+    if (!Platform.isAndroid) {
+      return const Stream<BackgroundConnectionSnapshot>.empty();
+    }
+
+    return FlutterBackgroundService()
+        .on(_connectionStatusMethod)
+        .where((event) {
+          return event != null;
+        })
+        .map(
+          (event) => BackgroundConnectionSnapshot.fromMap(
+            Map<String, dynamic>.from(event!),
+          ),
+        );
+  }
+
+  static void requestConnectionSnapshot() {
+    if (!Platform.isAndroid) return;
+    FlutterBackgroundService().invoke(_requestConnectionStatusMethod);
+  }
+
+  static void requestLatestFromBackground() {
+    if (!Platform.isAndroid) return;
+    FlutterBackgroundService().invoke(_requestLatestMethod);
+  }
+
+  static void pushClipboardText(String text) {
+    if (!Platform.isAndroid || text.isEmpty) return;
+    FlutterBackgroundService().invoke(_pushClipboardTextMethod, {'text': text});
+  }
+
+  static void disconnectHubInBackground() {
+    if (!Platform.isAndroid) return;
+    FlutterBackgroundService().invoke(_disconnectHubMethod);
+  }
 
   static Future<void> _setForegroundStatus(
     ServiceInstance service,
@@ -59,6 +102,25 @@ class BackgroundService {
     }
 
     await _setForegroundStatus(service, statusText);
+  }
+
+  static Future<void> _broadcastConnectionSnapshot(
+    ServiceInstance service,
+    ConnectionManager connectionManager,
+  ) async {
+    await StorageService.instance.saveBackgroundConnectionSnapshot(
+      connectionState: connectionManager.connectionState.name,
+      hubName: connectionManager.currentHub?.name,
+      hubEndpoint: connectionManager.currentHub?.endpoint,
+      isConnected: connectionManager.isConnected,
+    );
+
+    service.invoke(_connectionStatusMethod, {
+      'connectionState': connectionManager.connectionState.name,
+      'hubName': connectionManager.currentHub?.name,
+      'hubEndpoint': connectionManager.currentHub?.endpoint,
+      'isConnected': connectionManager.isConnected,
+    });
   }
 
   static Future<void> initialize() async {
@@ -171,15 +233,45 @@ class BackgroundService {
         service.stopSelf();
       });
 
+      service.on(_requestConnectionStatusMethod).listen((event) async {
+        await _broadcastConnectionSnapshot(service, connectionManager);
+      });
+
+      service.on(_requestLatestMethod).listen((event) async {
+        await syncService.requestLatest();
+        await _broadcastConnectionSnapshot(service, connectionManager);
+      });
+
+      service.on(_pushClipboardTextMethod).listen((event) async {
+        final payload = event != null
+            ? Map<String, dynamic>.from(event)
+            : const <String, dynamic>{};
+        final text = payload['text'] as String? ?? '';
+        if (text.isEmpty) return;
+        await syncService.pushContent(text);
+        await _broadcastConnectionSnapshot(service, connectionManager);
+      });
+
+      service.on(_disconnectHubMethod).listen((event) async {
+        await connectionManager.disconnect();
+        await _broadcastConnectionSnapshot(service, connectionManager);
+      });
+
       // Update notification based on connection state
       connectionManager.connectionStateStream.listen((state) async {
         await _updateForegroundNotification(service, connectionManager);
+        await _broadcastConnectionSnapshot(service, connectionManager);
         AppLogger.info('Background Service: Connection State -> $state');
+      });
+
+      connectionManager.hubChangedStream.listen((hub) async {
+        await _broadcastConnectionSnapshot(service, connectionManager);
       });
 
       // Show the actual current state immediately instead of leaving the
       // foreground notification stuck at "Initializing...".
       await _updateForegroundNotification(service, connectionManager);
+      await _broadcastConnectionSnapshot(service, connectionManager);
 
       // Attempt to auto-connect
       // If the app was just killed, this will pick up the connection in the background
@@ -188,6 +280,7 @@ class BackgroundService {
       if (!autoConnected) {
         await _updateForegroundNotification(service, connectionManager);
       }
+      await _broadcastConnectionSnapshot(service, connectionManager);
     } catch (e, stack) {
       final errorText = e.toString().replaceAll('\n', ' ');
       final shortened = errorText.length > 80
@@ -197,4 +290,29 @@ class BackgroundService {
       AppLogger.error('Background Service Error', error: e, stackTrace: stack);
     }
   }
+}
+
+class BackgroundConnectionSnapshot {
+  const BackgroundConnectionSnapshot({
+    required this.connectionState,
+    required this.isConnected,
+    this.hubName,
+    this.hubEndpoint,
+  });
+
+  factory BackgroundConnectionSnapshot.fromMap(Map<String, dynamic> map) {
+    return BackgroundConnectionSnapshot(
+      connectionState: app_state.ConnectionStateX.fromString(
+        map['connectionState'] as String?,
+      ),
+      isConnected: map['isConnected'] as bool? ?? false,
+      hubName: map['hubName'] as String?,
+      hubEndpoint: map['hubEndpoint'] as String?,
+    );
+  }
+
+  final app_state.ConnectionState connectionState;
+  final bool isConnected;
+  final String? hubName;
+  final String? hubEndpoint;
 }

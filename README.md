@@ -1,150 +1,160 @@
 # CopyPaws Mobile
 
-Ứng dụng **Flutter** đồng bộ clipboard với CopyPaws Desktop qua mạng local.
+CopyPaws Mobile is a Flutter companion app for CopyPaws Desktop that syncs clipboard content over your local network.
 
-## 🚀 Quick Start
+The app is designed around a local-first workflow:
+- pair with the desktop hub using a QR code
+- connect over LAN with WebSocket
+- encrypt clipboard payloads with AES-256-GCM
+- keep a local clipboard history on the device
+
+CopyPaws Mobile is meant to make copy/paste between phone and desktop feel fast, private, and low-friction without relying on a cloud relay.
+
+## Highlights
+
+- LAN-based clipboard sync between desktop and mobile
+- QR pairing for first-time setup
+- Auto-connect to the last paired hub
+- AES-256-GCM end-to-end payload encryption
+- Local clipboard history with SQLite
+- Local notifications for incoming clips
+- Android foreground service for background connectivity
+- Android home widget for quick push/pull actions
+
+## Current Status
+
+- Android is the primary target and has the most complete feature set
+- iOS shares the Flutter codebase, but background and widget support still need more work
+- Text clipboard sync is the main supported flow today
+- Rich clipboard flows such as images and files are still being refined across platforms
+
+## Core Features
+
+### Connection
+
+- mDNS discovery for finding a desktop hub on the same network
+- QR-based pairing
+- Handshake flow for trusted reconnects
+- Auto-reconnect when returning to the app or restoring a saved session
+
+### Clipboard Sync
+
+- Push the current mobile clipboard to desktop
+- Receive new clips from the desktop hub in near real time
+- Copy items back from Incoming Clips or History
+- Store clip metadata locally for history and widget updates
+
+### Android Experience
+
+- Foreground service to keep the connection alive while the app is backgrounded
+- Notification support for newly received clips
+- Home widget shortcuts for push and pull actions
+- Settings helpers for notification and battery optimization permissions
+
+## Tech Stack
+
+- Flutter
+- `web_socket_channel` for WebSocket communication
+- `bonsoir` for mDNS discovery
+- `pointycastle` for AES-256-GCM encryption
+- `flutter_secure_storage` for secrets
+- `shared_preferences` for lightweight settings and shared state
+- `sqflite` for clipboard history
+- `flutter_local_notifications` for local notifications
+- `flutter_background_service` for Android background execution
+- `home_widget` for Android widgets
+
+## Project Structure
+
+```text
+lib/
+|-- core/
+|   |-- config/
+|   |-- constants/
+|   |-- models/
+|   |-- services/
+|   |-- theme/
+|   `-- utils/
+|-- features/
+|   |-- history/
+|   |-- home/
+|   |-- scan/
+|   `-- settings/
+|-- providers/
+|-- shared/
+`-- main.dart
+```
+
+## Requirements
+
+- Flutter 3.35+
+- Dart 3.10+
+- Android Studio or Xcode
+- A running CopyPaws Desktop hub on the same LAN
+
+## Getting Started
 
 ```bash
-# Cài dependencies
 flutter pub get
-
-# Chạy app
 flutter run
+```
 
-# Build Android
+### Build Android
+
+```bash
 flutter build apk --release
+```
 
-# Build iOS
+### Build iOS
+
+```bash
 flutter build ios --release
 ```
 
-## 📁 Cấu trúc
+## Typical Flow
 
-```
-lib/
-├── main.dart                  # Entry point
-├── core/                      # Core functionality
-│   ├── config/               # App configuration
-│   ├── constants/            # Enums & constants
-│   ├── models/               # Data models
-│   ├── services/             # Core services
-│   │   ├── websocket_service.dart    # WebSocket client
-│   │   ├── connection_manager.dart   # Connection orchestration
-│   │   ├── sync_service.dart         # Clipboard sync
-│   │   ├── encryption_service.dart   # AES-256-GCM
-│   │   ├── storage_service.dart      # Secure storage
-│   │   ├── clipboard_service.dart    # System clipboard
-│   │   ├── notification_service.dart # Push notifications
-│   │   ├── discovery_service.dart    # mDNS discovery
-│   │   └── widget_service.dart       # Home widget
-│   ├── theme/                # UI theming
-│   └── utils/                # Utilities
-├── features/                  # Feature modules
-│   ├── home/                 # Home screen + widgets
-│   ├── scan/                 # QR scanning
-│   ├── history/              # Clipboard history
-│   └── settings/             # Settings page
-├── providers/                 # State management
-└── shared/                    # Shared widgets
-```
+### 1. Pair with desktop
 
-## ✅ Tính năng hoàn thành
+1. Open CopyPaws Desktop
+2. Show the pairing QR code on desktop
+3. Open CopyPaws Mobile
+4. Go to the scan screen and scan the QR code
+5. The app stores the shared secret and connects to the hub
 
-### Core Services
-- ✅ **WebSocket Client** - Connect, disconnect, auto-reconnect
-- ✅ **Connection Manager** - Pairing, handshake, device management
-- ✅ **Sync Service** - Push/receive clipboard, encrypted
-- ✅ **AES-256-GCM Encryption** - Full end-to-end encryption
-- ✅ **Secure Storage** - Save hub info, shared secret
-- ✅ **mDNS Discovery** - Auto-discover hubs on network
-- ✅ **Notifications** - Local push notifications
-- ✅ **Home Widget** - Quick actions widget
+### 2. Sync clipboard content
 
-### Screens
-- ✅ **Home Screen** - Connection status, push button, clips list
-- ✅ **Scan QR Screen** - Camera, QR detection, parse copypaws:// URI
-- ✅ **History Screen** - Clipboard history, copy, delete
-- ✅ **Settings Screen** - Device name, connection info
+- Mobile to desktop: copy content on your phone and tap `Push to Hub`
+- Desktop to mobile: copy something on desktop and it appears in the app
+- App to system clipboard: tap `Copy` from Incoming Clips or History
 
-### Protocol Support
-- ✅ PAIRING_REQUEST / PAIRING_RESPONSE
-- ✅ HANDSHAKE / HANDSHAKE_RESPONSE
-- ✅ CLIP_PUSH / CLIP_BROADCAST
-- ✅ GET_LATEST
-- ✅ ENCRYPTED messages
-- ✅ PING / PONG keep-alive
+## Related Docs
 
-## 🔧 Workflow
+- [Protocol Reference](./Architecture/PROTOCOL.md)
+- [Overview](./OVERVIEW.md)
+- [Progress Summary](./PROGRESS.md)
+- [Roadmap / TODO](./TODO.md)
+- [Android Widget Setup](./WIDGET_ANDROID_SETUP.md)
+- [iOS Widget Setup](./WIDGET_IOS_SETUP.md)
+- [Widget Test Guide](./WIDGET_TEST_GUIDE.md)
 
-### Pairing với Desktop
-1. Mở CopyPaws Desktop
-2. Vào Devices > Connect New Device
-3. Mở Mobile app > Scan QR
-4. Scan QR code
-5. Kết nối tự động sau khi pair thành công
+## Roadmap
 
-### Sync Clipboard
-- **Push**: Nhấn "Push to Hub" để gửi clipboard lên Desktop
-- **Receive**: Tự động nhận clips từ Desktop
-- **Copy**: Tap để copy clip vào system clipboard
+- Improve image and file clipboard flows
+- Make Android background sync more resilient across OEM devices
+- Improve iOS background and widget support
+- Add more unit and integration tests
+- Expand setup and debugging documentation
 
-## 📊 Tiến độ
+## Notes
 
-Xem chi tiết tại [PROGRESS.md](./PROGRESS.md)
+- This repository is the mobile companion app for CopyPaws Desktop and does not work as a standalone product without a desktop hub
+- The current architecture is LAN-first and does not use Firebase or a cloud relay by default
+- Background behavior may still vary depending on Android OEM restrictions and iOS platform limits
 
-| Module | Status |
-|--------|--------|
-| WebSocket Service | ✅ 100% |
-| Connection Manager | ✅ 100% |
-| Sync Service | ✅ 100% |
-| Encryption | ✅ 100% |
-| Storage | ✅ 100% |
-| All Screens | ✅ 100% |
+## License
 
-## 📋 TODO
-
-- [ ] iOS background fetch
-- [ ] Android foreground service
-- [ ] Unit tests
-- [ ] Integration tests
-- [ ] Image clipboard support
-- [ ] Search/filter history
-- [ ] Auto-pair (không cần QR)
-
-## 📦 Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| `web_socket_channel` | WebSocket client |
-| `mobile_scanner` | QR code scanning |
-| `flutter_secure_storage` | Secure storage |
-| `bonsoir` | mDNS discovery |
-| `flutter_local_notifications` | Push notifications |
-| `pointycastle` | Encryption |
-| `device_info_plus` | Device info |
-| `uuid` | UUID generation |
-| `home_widget` | Home widget |
-
-## 🧪 Testing
-
-### Test với Desktop
-1. Chạy CopyPaws Desktop
-2. Chạy Mobile app: `flutter run`
-3. Scan QR để pair
-4. Test push/receive clipboard
-
-### Test với test-client
-1. Chạy Desktop app
-2. Mở `../test-client/index.html`
-3. So sánh behavior với Mobile app
-
-## 📝 Ghi chú
-
-- App sử dụng feature-first architecture
-- State management: ChangeNotifier (có thể thay BLoC/Riverpod)
-- Theme đã cấu hình khớp với Desktop app
-- Encryption key được lưu trong Secure Storage
+No license has been declared in this repository yet.
 
 ---
 
-Part of the **CopyPaws** ecosystem.
+Part of the CopyPaws ecosystem.

@@ -118,6 +118,19 @@ class SyncService {
 
   /// Push current clipboard to hub
   Future<bool> pushClipboard() async {
+    // Get clipboard content
+    final content = await _clipService.getContent();
+    if (content == null || content.isEmpty) {
+      AppLogger.warning('Cannot push: clipboard is empty');
+      return false;
+    }
+
+    return pushContent(content);
+  }
+
+  /// Push provided content to hub.
+  /// Useful when the active socket lives in a background isolate.
+  Future<bool> pushContent(String content) async {
     if (!_connectionManager.isConnected) {
       AppLogger.warning('Cannot push: not connected');
       return false;
@@ -128,10 +141,8 @@ class SyncService {
       return false;
     }
 
-    // Get clipboard content
-    final content = await _clipService.getContent();
-    if (content == null || content.isEmpty) {
-      AppLogger.warning('Cannot push: clipboard is empty');
+    if (content.isEmpty) {
+      AppLogger.warning('Cannot push: content is empty');
       return false;
     }
 
@@ -214,6 +225,14 @@ class SyncService {
       case MessageType.encrypted:
         AppLogger.info('Handling clip broadcast/encrypted message');
         _handleClipBroadcast(data);
+        break;
+      case MessageType.ping:
+      case MessageType.pong:
+      case MessageType.pairingResponse:
+      case MessageType.handshakeResponse:
+        AppLogger.debug(
+          'Ignoring non-clipboard message in SyncService: $typeStr',
+        );
         break;
       default:
         AppLogger.info(
